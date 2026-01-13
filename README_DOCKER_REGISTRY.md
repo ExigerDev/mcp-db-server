@@ -105,19 +105,19 @@ DATABASE_URL=mysql+aiomysql://user:password@localhost:3306/mydb
 ```bash
 # Run with SQLite (simplest setup)
 docker run -d \
-  -p 3000:3000 \
+  -p 8000:8000 \
   -e DATABASE_URL=sqlite+aiosqlite:///data/mydb.db \
   souhardyak/mcp-db-server
 
 # Run with PostgreSQL
 docker run -d \
-  -p 3000:3000 \
+  -p 8000:8000 \
   -e DATABASE_URL=postgresql+asyncpg://user:password@host:5432/db \
   souhardyak/mcp-db-server
 
 # Run with persistent SQLite storage
 docker run -d \
-  -p 3000:3000 \
+  -p 8000:8000 \
   -v /host/data:/data \
   -e DATABASE_URL=sqlite+aiosqlite:///data/mydb.db \
   souhardyak/mcp-db-server

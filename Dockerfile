@@ -61,10 +61,10 @@ ENV DATABASE_URL=sqlite+aiosqlite:///data/default.db
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import asyncio; import sys; sys.path.insert(0, '/app/app'); from db import DatabaseManager; dm = DatabaseManager(); print('OK' if asyncio.run(dm.test_connection()) else 'FAIL')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Default command runs the MCP server
-CMD ["python", "mcp_server.py"]
+# Default command runs the HTTP server on port 8000
+CMD ["python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # Labels for the MCP registry
 LABEL org.opencontainers.image.title="MCP Database Server"
