@@ -9,21 +9,15 @@ services:
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///data/default.db
       - PYTHONUNBUFFERED=1
+    ports:
+      - "8000:8000"
     volumes:
       # Mount data directory for persistent SQLite databases
       - ./data:/data
       # Optional: Mount config files
       - ./config:/app/config:ro
-    stdin_open: true # Required for MCP stdio communication
-    tty: true
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import asyncio; import sys; sys.path.insert(0, '/app/app'); from db import DatabaseManager; dm = DatabaseManager(); print('OK' if asyncio.run(dm.test_connection()) else 'FAIL')",
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
