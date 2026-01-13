@@ -7,6 +7,7 @@ Tests that the FastAPI HTTP server starts correctly and responds on port 8000.
 import asyncio
 import sys
 import time
+import os
 import subprocess
 import requests
 from pathlib import Path
@@ -15,11 +16,19 @@ def test_http_server():
     """Test that the HTTP server starts and responds correctly"""
     print("Testing HTTP Server on port 8000...")
     
+    # Ensure data directory exists
+    data_dir = Path(__file__).parent / "data"
+    data_dir.mkdir(exist_ok=True)
+    
+    # Prepare environment with DATABASE_URL
+    env = os.environ.copy()
+    env["DATABASE_URL"] = "sqlite+aiosqlite:///data/test.db"
+    
     # Start the server process
     server_process = subprocess.Popen(
         ["python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"],
         cwd=Path(__file__).parent,
-        env={"DATABASE_URL": "sqlite+aiosqlite:///data/test.db"},
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
@@ -64,7 +73,12 @@ def test_http_server():
         # Stop the server
         print("\nStopping server...")
         server_process.terminate()
-        server_process.wait(timeout=10)
+        try:
+            server_process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            # Force kill if it doesn't stop gracefully
+            server_process.kill()
+            server_process.wait()
 
 if __name__ == "__main__":
     success = test_http_server()
