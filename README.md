@@ -49,12 +49,13 @@ Add to `~/.claude.json` (or Claude Desktop config):
 ```json
 {
   "mcpServers": {
-    "qa-mcp": {
-      "url": "http://localhost:8000/mcp"
-    }
+    "qa-db":      { "url": "http://localhost:8765/db/mcp" },
+    "qa-symbols": { "url": "http://localhost:8765/symbols/mcp" }
   }
 }
 ```
+
+If you changed `MCP_PORT` in `.env`, update the port in both URLs accordingly.
 
 ---
 

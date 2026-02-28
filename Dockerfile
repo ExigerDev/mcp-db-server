@@ -43,11 +43,11 @@ USER mcp
 # Default symbol index path — override via SYMBOL_INDEX_PATH env var or .env
 ENV SYMBOL_INDEX_PATH=/data/symbol_index.db
 
-# TCP healthcheck — works for streamable-HTTP transport (no HTTP /health endpoint)
+# TCP healthcheck — reads MCP_PORT from env so it tracks the configured port
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import socket; socket.create_connection(('localhost', 8000), timeout=5)" || exit 1
+    CMD python -c "import socket,os; socket.create_connection(('localhost',int(os.getenv('MCP_PORT','8765'))),timeout=5)" || exit 1
 
-# Run the MCP server in streamable-HTTP mode on port 8000
+# Run the MCP server in streamable-HTTP mode (port from MCP_PORT env, default 8765)
 CMD ["python", "mcp_server.py", "--transport", "http"]
 
 LABEL org.opencontainers.image.title="QA MCP Server"

@@ -2,16 +2,29 @@
 """
 QA MCP Server — DB tools + Grails symbol index.
 
-Two sets of tools:
-  1. DB tools (6): multi-schema MySQL navigation against QA1 environment
-  2. Symbol index tools (3 + reload): ported from mcp-indexed-tabs/symbol_index_mcp.py
+Two sets of tools served at separate routes:
+  1. DB tools (6)     — /db/mcp
+  2. Symbol tools (4) — /symbols/mcp
 
 Transport:
-  --transport stdio   stdio MCP (default; for direct integration)
-  --transport http    streamable-HTTP on port 8000 (Docker default)
+  --transport stdio   stdio MCP (default; tools namespaced as db_* / symbols_*)
+  --transport http    streamable-HTTP; host/port from env (default 0.0.0.0:8765)
 
 Claude Code config for HTTP transport:
-  { "mcpServers": { "qa-mcp": { "url": "http://localhost:8000/mcp" } } }
+  {
+    "mcpServers": {
+      "qa-db":      { "url": "http://localhost:8765/db/mcp" },
+      "qa-symbols": { "url": "http://localhost:8765/symbols/mcp" }
+    }
+  }
+
+Port/host env vars:
+  MCP_HOST           (default 0.0.0.0)
+  MCP_PORT           (default 8765)
+  DB_MCP_PORT        (default MCP_PORT)  — future: split DB to its own port
+  SYMBOLS_MCP_PORT   (default MCP_PORT)  — future: split symbol index to its own port
+  DB_MCP_PATH        (default /db/mcp)
+  SYMBOLS_MCP_PATH   (default /symbols/mcp)
 """
 
 import asyncio
@@ -22,8 +35,13 @@ import re
 import sqlite3
 import sys
 import argparse
+from contextlib import asynccontextmanager, AsyncExitStack
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
 # Add app/ to Python path — works both locally and in Docker (/app/app)
 _script_dir = Path(__file__).resolve().parent
@@ -33,7 +51,7 @@ if _app_dir.exists():
 else:
     sys.path.insert(0, "/app/app")
 
-from mcp.server import fastmcp
+import fastmcp
 from dotenv import load_dotenv
 from db import DatabaseManager, make_url
 
@@ -43,11 +61,36 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("qa-mcp-server")
 
 # ---------------------------------------------------------------------------
-# FastMCP instance
-# host/port are used when running in streamable-HTTP mode.
-# The MCP endpoint will be at http://localhost:8000/mcp
+# FastMCP sub-server instances
+# DB tools and symbol tools are served at separate HTTP routes.
 # ---------------------------------------------------------------------------
-mcp = fastmcp.FastMCP("QA DB & Symbol Server", host="0.0.0.0", port=8000)
+db_mcp     = fastmcp.FastMCP("QA DB Tools")
+symbol_mcp = fastmcp.FastMCP("QA Symbol Index")
+
+# ---------------------------------------------------------------------------
+# Port / route configuration
+# Each entry maps a logical name to a sub-server, HTTP path, and port.
+# Currently all routes share MCP_PORT (single uvicorn instance).
+# To split routes onto separate ports in the future:
+#   set DB_MCP_PORT and SYMBOLS_MCP_PORT to different values in .env —
+#   the entry point will detect the difference and raise NotImplementedError
+#   as a reminder to wire up multi-port support at that time.
+# ---------------------------------------------------------------------------
+MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
+MCP_PORT = int(os.getenv("MCP_PORT", "8765"))
+
+ROUTE_CONFIG: Dict[str, Dict] = {
+    "db": {
+        "server": db_mcp,
+        "path":   os.getenv("DB_MCP_PATH",      "/db/mcp"),
+        "port":   int(os.getenv("DB_MCP_PORT",      os.getenv("MCP_PORT", "8765"))),
+    },
+    "symbols": {
+        "server": symbol_mcp,
+        "path":   os.getenv("SYMBOLS_MCP_PATH", "/symbols/mcp"),
+        "port":   int(os.getenv("SYMBOLS_MCP_PORT", os.getenv("MCP_PORT", "8765"))),
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Globals
@@ -200,7 +243,7 @@ async def startup(args):
 # DB tools (6)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@db_mcp.tool()
 async def list_data_sources() -> str:
     """
     List all available data sources (schemas) that can be queried.
@@ -220,7 +263,7 @@ async def list_data_sources() -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@db_mcp.tool()
 async def use_data_source(data_source_id: str) -> str:
     """
     Switch the active schema for subsequent schema_overview, describe_table, and query calls.
@@ -242,7 +285,7 @@ async def use_data_source(data_source_id: str) -> str:
     return f"Active schema set to: {data_source_id}"
 
 
-@mcp.tool()
+@db_mcp.tool()
 async def schema_overview(filter: str = "", include_row_estimates: bool = False) -> str:
     """
     List tables in the active schema.
@@ -277,7 +320,7 @@ async def schema_overview(filter: str = "", include_row_estimates: bool = False)
         return f"Error listing tables in '{_active_schema_id}': {e}"
 
 
-@mcp.tool()
+@db_mcp.tool()
 async def describe_table(
     table: str,
     include_indexes: bool = True,
@@ -330,7 +373,7 @@ async def describe_table(
         return f"Error describing table '{table}' in '{_active_schema_id}': {e}"
 
 
-@mcp.tool()
+@db_mcp.tool()
 async def query(
     sql: str,
     params: Optional[Dict[str, Any]] = None,
@@ -396,7 +439,7 @@ async def query(
     return output
 
 
-@mcp.tool()
+@db_mcp.tool()
 async def resolve_tenant(q: str) -> str:
     """
     Find OEM tenant(s) by code name or display name substring.
@@ -455,7 +498,7 @@ async def resolve_tenant(q: str) -> str:
 # Each tool returns early with a friendly message if _symbol_db_path is None.
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@symbol_mcp.tool()
 def find_symbol(
     name: str,
     kind: str = "",
@@ -540,7 +583,7 @@ def find_symbol(
     return "\n".join(lines) + truncated
 
 
-@mcp.tool()
+@symbol_mcp.tool()
 def describe_class(class_name: str, usages: bool = False) -> str:
     """
     Return full details for a Grails class: location, artifact type, GORM relations,
@@ -757,7 +800,7 @@ def describe_class(class_name: str, usages: bool = False) -> str:
     return "\n".join(out)
 
 
-@mcp.tool()
+@symbol_mcp.tool()
 def find_route(pattern: str) -> str:
     """
     Find URL mappings by controller name or URL pattern.
@@ -803,7 +846,7 @@ def find_route(pattern: str) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool()
+@symbol_mcp.tool()
 async def reload_symbol_index() -> str:
     """
     Reload the symbol index from SYMBOL_INDEX_PATH.
@@ -839,7 +882,7 @@ async def reload_symbol_index() -> str:
 # MCP Resources (updated to use active schema)
 # ---------------------------------------------------------------------------
 
-@mcp.resource("database://tables")
+@db_mcp.resource("database://tables")
 async def get_database_tables() -> str:
     """Resource: table listing for the active schema."""
     mgr    = _get_active_manager()
@@ -848,7 +891,7 @@ async def get_database_tables() -> str:
     return f"Schema: {_active_schema_id}\n\n" + "\n".join(lines)
 
 
-@mcp.resource("database://schema")
+@db_mcp.resource("database://schema")
 async def get_database_schema() -> str:
     """Resource: full schema for the active schema as JSON."""
     mgr    = _get_active_manager()
@@ -863,21 +906,72 @@ async def get_database_schema() -> str:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _http_run(args):
+    """
+    Run in HTTP mode. Startup completes before uvicorn takes the event loop.
+    All routes currently share MCP_PORT (single Starlette app).
+    When different ports are configured, NotImplementedError is raised as a
+    reminder to wire up per-port uvicorn instances at that time.
+    """
+    asyncio.run(startup(args))
+
+    by_port: Dict[int, list] = {}
+    for cfg in ROUTE_CONFIG.values():
+        by_port.setdefault(cfg["port"], []).append(cfg)
+
+    if len(by_port) > 1:
+        raise NotImplementedError(
+            "Per-route port splitting is not yet implemented. "
+            "Set DB_MCP_PORT and SYMBOLS_MCP_PORT to the same value, "
+            "or leave them unset (both inherit MCP_PORT)."
+        )
+
+    port = next(iter(by_port))
+    sub_apps = {name: cfg["server"].http_app(path="/") for name, cfg in ROUTE_CONFIG.items()}
+
+    @asynccontextmanager
+    async def combined_lifespan(app):
+        async with AsyncExitStack() as stack:
+            for sub_app in sub_apps.values():
+                await stack.enter_async_context(sub_app.lifespan(app))
+            yield
+
+    routes = [
+        Mount(ROUTE_CONFIG[name]["path"], app=sub_app)
+        for name, sub_app in sub_apps.items()
+    ]
+    app = Starlette(routes=routes, lifespan=combined_lifespan)
+    logger.info(
+        "QA MCP Server starting on %s:%d  routes: %s",
+        MCP_HOST, port,
+        {name: cfg["path"] for name, cfg in ROUTE_CONFIG.items()},
+    )
+    uvicorn.run(app, host=MCP_HOST, port=port, log_level="info")
+
+
+async def _stdio_run(args):
+    """
+    Run in stdio mode. Both sub-servers are mounted onto a parent with
+    namespacing (tool names become db_* and symbols_*).
+    """
+    await startup(args)
+    parent = fastmcp.FastMCP("QA MCP Server")
+    parent.mount(db_mcp,     namespace="db")
+    parent.mount(symbol_mcp, namespace="symbols")
+    await parent.run_stdio_async()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="QA MCP Server — DB + Symbol Index")
     parser.add_argument(
         "--transport",
         choices=["stdio", "http"],
         default="stdio",
-        help="Transport: stdio (default) or http (streamable-HTTP on 0.0.0.0:8000)",
+        help="Transport: stdio (default) or http (streamable-HTTP, see MCP_PORT)",
     )
     args = parser.parse_args()
 
-    async def run():
-        await startup(args)
-        if args.transport == "http":
-            await mcp.run_streamable_http_async()
-        else:
-            await mcp.run_stdio_async()
-
-    asyncio.run(run())
+    if args.transport == "http":
+        _http_run(args)
+    else:
+        asyncio.run(_stdio_run(args))

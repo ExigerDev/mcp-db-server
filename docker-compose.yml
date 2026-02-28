@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      - "${MCP_PORT:-8765}:${MCP_PORT:-8765}"
     volumes:
       # Mount data dir for symbol_index.db persistence
       - ./data:/data
@@ -19,7 +19,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import socket; socket.create_connection(('localhost', 8000), timeout=5)",
+          "import socket,os; socket.create_connection(('localhost',int(os.getenv('MCP_PORT','8765'))),timeout=5)",
         ]
       interval: 30s
       timeout: 10s
