@@ -3,7 +3,7 @@
 This repository is a work-in-progress fork of the original project:
 
 Original Project: mcp-db-server
-Source: [<https://github.com/original-org/original-repo>](https://github.com/Souhar-dya/mcp-db-server)
+Source: [<https://github.com/Souhar-dya/mcp-db-server>](https://github.com/Souhar-dya/mcp-db-server)
 License: Apache License, Version 2.0
 
 This fork is being adapted for internal team use. It may diverge significantly from the upstream project and is not intended to be a drop-in replacement.
@@ -39,7 +39,6 @@ Where applicable:
 This is an internal derivative work and is not affiliated with or endorsed by the original project maintainers.
 
 ⸻
-
 
 ## Features
 
