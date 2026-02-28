@@ -1,9 +1,45 @@
-# mcp-db-server
+# ⚠ Work-in-Progress Fork
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+This repository is a work-in-progress fork of the original project:
 
-An MCP (Model Context Protocol) server that exposes relational databases (PostgreSQL/MySQL) to AI agents with natural language query support. Transform natural language questions into SQL queries and get structured results.
+Original Project: mcp-db-server
+Source: [<https://github.com/original-org/original-repo>](https://github.com/Souhar-dya/mcp-db-server)
+License: Apache License, Version 2.0
+
+This fork is being adapted for internal team use. It may diverge significantly from the upstream project and is not intended to be a drop-in replacement.
+
+⸻
+
+## Purpose of This Fork
+
+This fork exists to:
+	•	Extend and customize functionality for internal workflows
+	•	Experiment with features not present in the upstream project
+	•	Provide a foundation for a team-specific tool
+
+It is not currently intended for public distribution or contribution back upstream.
+
+⸻
+
+## Relationship to Upstream
+
+This repository contains modifications to the original project.
+All original code remains licensed under the Apache License, Version 2.0.
+
+See the LICENSE file for full license details.
+
+Where applicable:
+	•	Original copyright notices have been retained.
+	•	Modifications made in this fork may be identified in commit history.
+
+⸻
+
+## Disclaimer
+
+This is an internal derivative work and is not affiliated with or endorsed by the original project maintainers.
+
+⸻
+
 
 ## Features
 
