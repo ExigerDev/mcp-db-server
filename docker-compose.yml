@@ -1,23 +1,26 @@
 version: "3.8"
 
 services:
-  mcp-database-server:
+  mcp-server:
     build: .
-    image: mcp-database-server:latest
-    container_name: mcp-db-server
+    image: qa-mcp-server:latest
+    container_name: qa-mcp-server
     restart: unless-stopped
-    environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/default.db
-      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     volumes:
-      # Mount data directory for persistent SQLite databases
+      # Mount data dir for symbol_index.db persistence
       - ./data:/data
-      # Optional: Mount config files
-      - ./config:/app/config:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; socket.create_connection(('localhost', 8000), timeout=5)",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -25,68 +28,36 @@ services:
     networks:
       - mcp-network
 
-  # Optional PostgreSQL service for testing
-  postgres:
-    image: postgres:15-alpine
-    container_name: mcp-postgres
-    restart: unless-stopped
+  # Optional: debug REST layer (FastAPI HTTP server).
+  # Run with: docker-compose --profile debug up
+  debug-http:
+    build: .
+    image: qa-mcp-server:latest
+    container_name: qa-mcp-debug
+    restart: "no"
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: testdb
-      POSTGRES_USER: mcp_user
-      POSTGRES_PASSWORD: mcp_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+      - DATABASE_URL=${BASE_URL}mag
     ports:
-      - "5432:5432"
+      - "8001:8001"
+    volumes:
+      - ./data:/data
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "app.server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+      ]
     networks:
       - mcp-network
     profiles:
-      - with-postgres
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mcp_user -d testdb"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Optional MySQL service for testing
-  mysql:
-    image: mysql:8.0
-    container_name: mcp-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: testdb
-      MYSQL_USER: mcp_user
-      MYSQL_PASSWORD: mcp_password
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./init-scripts:/docker-entrypoint-initdb.d:ro
-    ports:
-      - "3306:3306"
-    networks:
-      - mcp-network
-    profiles:
-      - with-mysql
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "localhost",
-          "-u",
-          "mcp_user",
-          "-pmcp_password",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:
-  mysql_data:
+      - debug
 
 networks:
   mcp-network:

@@ -1,79 +1,56 @@
-# Multi-stage build for efficient MCP Database Server
+# Multi-stage build for QA MCP Server
 FROM python:alpine AS builder
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies for building
 RUN apk update && apk add --no-cache \
     build-base \
     git
 
-# Create and activate virtual environment
 ENV VIRTUAL_ENV=/opt/venv
 RUN python -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Copy requirements first for better layer caching
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
 # Production stage
 FROM python:alpine
 
-# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
 
-# Install runtime system dependencies
-RUN apk update && apk add --no-cache \
-    sqlite
+RUN apk update && apk add --no-cache sqlite
 
-# Copy virtual environment from builder
 COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
 
-# Create app directory and user
 RUN addgroup -g 1001 mcp && adduser -u 1001 -G mcp -s /bin/sh -D mcp
 WORKDIR /app
 
-# Copy application files
 COPY app/ ./app/
 COPY mcp_server.py .
 
-# Create data directory for SQLite databases
 RUN mkdir -p /data && chown -R mcp:mcp /app /data
 
-# Switch to non-root user
 USER mcp
 
-# Set default database path
+# Default symbol index path — override via SYMBOL_INDEX_PATH env var or .env
+ENV SYMBOL_INDEX_PATH=/data/symbol_index.db
 
-# Default to SQLite for local/dev, override with DATABASE_URL for cloud (MySQL/PostgreSQL)
-ENV DATABASE_URL=sqlite+aiosqlite:///data/default.db
+# TCP healthcheck — works for streamable-HTTP transport (no HTTP /health endpoint)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import socket; socket.create_connection(('localhost', 8000), timeout=5)" || exit 1
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+# Run the MCP server in streamable-HTTP mode on port 8000
+CMD ["python", "mcp_server.py", "--transport", "http"]
 
-# Default command runs the HTTP server on port 8000
-CMD ["python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# Labels for the MCP registry
-LABEL org.opencontainers.image.title="MCP Database Server"
-LABEL org.opencontainers.image.description="Model Context Protocol server for database interactions with natural language queries"
-LABEL org.opencontainers.image.version="1.1.0"
-LABEL org.opencontainers.image.authors="Souhardya Kundu <kundusouhardya@gmail.com>"
-LABEL org.opencontainers.image.url="https://github.com/Souhar-dya/mcp-db-server"
-LABEL org.opencontainers.image.source="https://github.com/Souhar-dya/mcp-db-server"
-LABEL org.opencontainers.image.licenses="MIT"
-LABEL mcp.server.name="database-server"
-LABEL mcp.server.type="database"
-LABEL mcp.server.capabilities="query,natural-language,multi-database"
+LABEL org.opencontainers.image.title="QA MCP Server"
+LABEL org.opencontainers.image.description="MCP server for QA MySQL navigation and Grails symbol index"
+LABEL mcp.server.name="qa-mcp-server"
+LABEL mcp.server.type="database+symbol"
